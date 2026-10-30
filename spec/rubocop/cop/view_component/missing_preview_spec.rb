@@ -170,7 +170,6 @@ RSpec.describe RuboCop::Cop::ViewComponent::MissingPreview, :config do
         "ViewComponent/MissingPreview" => {
           "Enabled" => true,
           "PreviewPaths" => ["/previews"],
-          "ViewComponentParentClasses" => %w[ViewComponent::Base ApplicationComponent],
           "AllowSlotSubcomponents" => true
         }
       )
@@ -261,6 +260,43 @@ RSpec.describe RuboCop::Cop::ViewComponent::MissingPreview, :config do
         RUBY
       end
 
+      it "does not register an offense when a sibling component declares a slot referencing this class" do
+        allow(File).to receive(:exist?).and_return(false)
+        allow(Dir).to receive(:glob).and_call_original
+        allow(Dir).to receive(:glob)
+          .with("/app/components/navbar/*.rb")
+          .and_return(%w[/app/components/navbar/menu_component.rb /app/components/navbar/menu_entry_component.rb])
+        allow(File).to receive(:read)
+          .with("/app/components/navbar/menu_component.rb")
+          .and_return(<<~RUBY)
+            renders_many :entries, ->(label:, url:) do
+              MenuEntryComponent.new(label:, url:)
+            end
+          RUBY
+
+        expect_no_offenses(<<~RUBY, "/app/components/navbar/menu_entry_component.rb")
+          class MenuEntryComponent < ApplicationComponent
+          end
+        RUBY
+      end
+
+      it "registers an offense when no sibling component declares a matching slot" do
+        allow(File).to receive(:exist?).and_return(false)
+        allow(Dir).to receive(:glob).and_call_original
+        allow(Dir).to receive(:glob)
+          .with("/app/components/navbar/*.rb")
+          .and_return(%w[/app/components/navbar/menu_component.rb /app/components/navbar/menu_entry_component.rb])
+        allow(File).to receive(:read)
+          .with("/app/components/navbar/menu_component.rb")
+          .and_return('renders_many :sections, "SectionComponent"')
+
+        expect_offense(<<~RUBY, "/app/components/navbar/menu_entry_component.rb")
+          class MenuEntryComponent < ApplicationComponent
+                ^^^^^^^^^^^^^^^^^^ No preview found for MenuEntryComponent (looked in: /previews).
+          end
+        RUBY
+      end
+
       it "registers an offense when parent file does not exist" do
         allow(File).to receive(:exist?).and_return(false)
 
@@ -278,7 +314,6 @@ RSpec.describe RuboCop::Cop::ViewComponent::MissingPreview, :config do
           "ViewComponent/MissingPreview" => {
             "Enabled" => true,
             "PreviewPaths" => ["/previews"],
-            "ViewComponentParentClasses" => %w[ViewComponent::Base ApplicationComponent],
             "AllowSlotSubcomponents" => false
           }
         )

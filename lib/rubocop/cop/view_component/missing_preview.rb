@@ -33,7 +33,7 @@ module RuboCop
         end
 
         def slot_subcomponent?(node)
-          nested_in_view_component?(node) || under_parent_component_dir?(node)
+          nested_in_view_component?(node) || declared_as_slot_nearby?(node)
         end
 
         def nested_in_view_component?(node)
@@ -41,21 +41,26 @@ module RuboCop
           parent && view_component_class?(parent)
         end
 
-        def under_parent_component_dir?(node)
+        def declared_as_slot_nearby?(node)
           path = processed_source.path
           return false unless path
 
-          dir = File.dirname(path)
-          parent_file = ["#{dir}.rb", "#{dir}_component.rb"].find { |f| File.exist?(f) }
-          return false unless parent_file
-
           short_name = node.identifier.source
-          parent_source = cached_file_read(parent_file)
           # Match class name on the same line as renders_one/many OR within a
           # short lambda block on the following lines (covers .new(...) inside
           # ->(...) do ... end). We allow up to ~5 lines after renders_ to avoid
           # false positives from unrelated later occurrences of the class name.
-          parent_source.match?(/renders_(one|many)\b[^\n]*(?:\n[^\n]*){0,5}\b#{Regexp.escape(short_name)}\b/)
+          slot_declaration = /renders_(one|many)\b[^\n]*(?:\n[^\n]*){0,5}\b#{Regexp.escape(short_name)}\b/
+          slot_declaring_candidates(path).any? { |candidate| cached_file_read(candidate).match?(slot_declaration) }
+        end
+
+        # The parent component owning this sidecar directory, or a sibling
+        # component in the same directory (a slot declared by another slot).
+        def slot_declaring_candidates(path)
+          dir = File.dirname(path)
+          parent_files = ["#{dir}.rb", "#{dir}_component.rb"].select { |file| File.exist?(file) }
+          sibling_files = Dir.glob(File.join(dir, "*.rb")) - [path]
+          parent_files + sibling_files
         end
 
         def cached_file_read(path)
